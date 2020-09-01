@@ -1,5 +1,6 @@
 const fs = require('fs');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const json2xlsx = require('node-json-xlsx');
 const _ = require('lodash');
 const XLSX = require('xlsx');
 
@@ -7,10 +8,17 @@ const url = 'https://seuimovelbb.com.br/busca?from=0&noDebts=false&noLegalAction
 
 
 puppeteer
-  .launch()
+  .launch({
+    headless: false,
+    // defaultViewport: null,
+    args: ['--start-maximized'],
+  })
   .then(async (browser) => {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'networkidle0' });
+
+    await page.waitFor(2000);
+    await page.click('#root > div > div > div.Modal_wrappedModal__Jpr-W.Modal_active__3fzEB > span > button')
 
     const fileData = [];
 
@@ -93,10 +101,41 @@ puppeteer
         }
       });
 
-      console.log(imoveis)
+      const nextPage = await page.$(
+        '#list > div.Search_container__2rOfC > div > div.Search_result__1frzk > section > div.Pagination_container__GPTNG > ul > li.next'
+      )
+
+      if (nextPage !== null) {
+        await page.click('#list > div.Search_container__2rOfC > div > div.Search_result__1frzk > section > div.Pagination_container__GPTNG > ul > li.next')
+        await page.waitFor(5000)
+        fileData.push(imoveis)
+        await getData()
+      } else {
+        fileData.push(imoveis)
+        console.log('End')
+      }
     }
 
     await getData();
+    console.log(fileData)
+
+    const flattenFileData = _.flattenDeep(fileData);
+    const flattenAndSeparatedFileData = _.chunk(flattenFileData, 9);
+
+    fs.writeFile(
+      './src/data/data.json',
+      JSON.stringify(flattenAndSeparatedFileData, null, 2),
+      function (err) {
+        if (err) throw err;
+        console.log('Arquivo Gerado');
+      }
+    );
+
+    const workSheet = XLSX.utils.json_to_sheet(flattenAndSeparatedFileData);
+    const wb = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(wb, workSheet, 'info_extract');
+    XLSX.writeFile(wb, './src/data/data.xlsb');
 
     await browser.close();
   })
